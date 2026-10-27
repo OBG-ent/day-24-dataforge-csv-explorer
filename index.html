@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataForge — In-Browser CSV Data Explorer</title>
+<style>
+  :root{
+    --bg:#0e0f13; --panel:#16181f; --panel2:#1d2029; --line:#2b2f3d;
+    --violet:#8b7bff; --violet2:#b3a8ff; --gold:#d4a017; --text:#f0eff5; --muted:#9a97a8;
+    --green:#3ecf6e; --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;padding:22px 14px 60px}
+  .wrap{max-width:1120px;margin:0 auto}
+  header.top{border-bottom:2px solid var(--violet);padding-bottom:14px;margin-bottom:18px}
+  header.top h1{font-size:30px;letter-spacing:.5px}
+  header.top h1 span{color:var(--violet2)}
+  header.top p{color:var(--muted);font-size:14px;margin-top:4px}
+  .drop{background:var(--panel);border:2px dashed var(--line);border-radius:var(--radius);padding:30px 20px;text-align:center;color:var(--muted);transition:border-color .15s, background .15s;margin-bottom:16px}
+  .drop.over{border-color:var(--violet);background:#1a1c2b;color:var(--text)}
+  .drop strong{color:var(--text);font-size:16px;display:block;margin-bottom:6px}
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+  button{cursor:pointer;border:none;border-radius:9px;font-weight:600;font-size:13.5px;padding:10px 14px;background:var(--violet);color:#14101f}
+  button:hover{background:var(--violet2)}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--muted)}
+  .btn-ghost:hover{color:var(--text);border-color:var(--violet);background:transparent}
+  .btn-ghost:disabled{opacity:.4;cursor:default}
+  input[type=text],select{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px 11px;font-size:13.5px;outline:none}
+  input[type=text]:focus,select:focus{border-color:var(--violet)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:13px 15px}
+  .stat .k{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--muted)}
+  .stat .v{font-size:20px;font-weight:700;margin-top:4px}
+  .stat .s{font-size:12px;color:var(--muted);margin-top:2px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+  .panel h2{font-size:15.5px;color:var(--violet2);margin-bottom:12px}
+  .tablewrap{overflow:auto;max-height:520px;border:1px solid var(--line);border-radius:11px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  th{position:sticky;top:0;background:var(--panel2);cursor:pointer;user-select:none;font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);z-index:2}
+  th:hover{color:var(--text)}
+  th .arrow{color:var(--violet2)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr:hover td{background:#1a1d27}
+  .pager{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .pager .info{color:var(--muted);font-size:13px}
+  canvas{width:100%;height:230px;display:block}
+  .chartControls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .chartControls label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:5px}
+  .status{color:var(--muted);font-size:13.5px;margin-bottom:12px;min-height:18px}
+  .status b{color:var(--green)}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;line-height:1.7}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--muted)}
+  textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px;font-size:12.5px;min-height:76px;display:none;margin-top:10px;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Data<span>Forge</span> 🛠️</h1>
+    <p>Drop a CSV and explore it — search, sort, filter, aggregate, and chart thousands of rows instantly. Everything runs locally in your browser; your file is never uploaded anywhere.</p>
+  </header>
+
+  <div class="drop" id="drop">
+    <strong>📂 Drag &amp; drop a .csv file here</strong>
+    or use the buttons below — no file? Generate a 10,000-row sample dataset and watch it fly.
+  </div>
+
+  <div class="toolbar">
+    <input type="file" id="fileInput" accept=".csv,text/csv" style="display:none">
+    <button id="pickBtn">Choose CSV file</button>
+    <button class="btn-ghost" id="sampleBtn">⚡ Generate 10,000-row sample</button>
+    <button class="btn-ghost" id="pasteBtn">Paste CSV text</button>
+    <button class="btn-ghost" id="exportBtn" disabled>⬇ Export filtered CSV</button>
+  </div>
+  <textarea id="pasteBox" placeholder="Paste CSV text here, then press Enter or click away to load it…"></textarea>
+
+  <div class="status" id="status">No data loaded yet.</div>
+  <section class="stats" id="stats"></section>
+
+  <section class="panel" id="tablePanel" style="display:none">
+    <h2>🔍 Explore</h2>
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Search every column…" style="flex:1;min-width:200px">
+      <span class="info" id="matchInfo" style="color:var(--muted);font-size:13px"></span>
+    </div>
+    <div class="tablewrap"><table>
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table></div>
+    <div class="pager">
+      <button class="btn-ghost" id="prevBtn">← Prev</button>
+      <span class="info" id="pageInfo"></span>
+      <button class="btn-ghost" id="nextBtn">Next →</button>
+    </div>
+  </section>
+
+  <section class="panel" id="chartPanel" style="display:none">
+    <h2>📊 Group &amp; total</h2>
+    <div class="chartControls">
+      <label>Group rows by
+        <select id="groupCol"></select>
+      </label>
+      <label>Total this number column
+        <select id="valueCol"></select>
+      </label>
+    </div>
+    <canvas id="chart" width="1020" height="230"></canvas>
+  </section>
+
+  <footer>
+    DataForge parses and renders on your device only — safe for sensitive spreadsheets.<br>
+    Built by Reynold Obago · Day 24 of shipping a project every day · <span class="pill">CSV parser · Debounced search · Paged rendering · Canvas charts</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var PAGE_SIZE = 100;
+  var headers = [], rows = [], filtered = [];
+  var sortCol = -1, sortDir = 1, page = 0;
+  var numericCols = [];
+
+  var els = {
+    drop: document.getElementById("drop"),
+    file: document.getElementById("fileInput"),
+    status: document.getElementById("status"),
+    stats: document.getElementById("stats"),
+    search: document.getElementById("search"),
+    thead: document.getElementById("thead"),
+    tbody: document.getElementById("tbody"),
+    pageInfo: document.getElementById("pageInfo"),
+    matchInfo: document.getElementById("matchInfo"),
+    tablePanel: document.getElementById("tablePanel"),
+    chartPanel: document.getElementById("chartPanel"),
+    groupCol: document.getElementById("groupCol"),
+    valueCol: document.getElementById("valueCol"),
+    exportBtn: document.getElementById("exportBtn"),
+    pasteBox: document.getElementById("pasteBox")
+  };
+
+  function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+  function fmt(n){ return n.toLocaleString("en-CA", {maximumFractionDigits: 2}); }
+
+  // --- CSV parser: handles quoted fields, embedded commas, quotes and newlines ---
+  function parseCSV(text){
+    var out = [], row = [], field = "", inQ = false, i, c;
+    text = String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    for(i = 0; i < text.length; i++){
+      c = text[i];
+      if(inQ){
+        if(c === '"'){ if(text[i+1] === '"'){ field += '"'; i++; } else { inQ = false; } }
+        else { field += c; }
+      } else if(c === '"'){ inQ = true; }
+      else if(c === ","){ row.push(field); field = ""; }
+      else if(c === "\n"){ row.push(field); out.push(row); row = []; field = ""; }
+      else { field += c; }
+    }
+    row.push(field);
+    if(row.length > 1 || row[0] !== ""){ out.push(row); }
+    return out.filter(function(r){ return !(r.length === 1 && r[0].trim() === ""); });
+  }
+
+  function loadFromText(text, sourceName){
+    var t0 = performance.now();
+    var grid = parseCSV(text);
+    if(grid.length < 2){
+      els.status.innerHTML = "⚠️ That didn't parse into a table — DataForge needs a header row plus at least one data row.";
+      return;
+    }
+    headers = grid[0].map(function(h, i){ return h.trim() || ("Column " + (i + 1)); });
+    rows = grid.slice(1).map(function(r){
+      while(r.length < headers.length){ r.push(""); }
+      return r.slice(0, headers.length);
+    });
+    numericCols = headers.map(function(_, ci){
+      var numeric = 0, seen = 0;
+      for(var i = 0; i < rows.length && seen < 400; i++){
+        var v = rows[i][ci].trim();
+        if(v !== ""){ seen++; if(!isNaN(Number(v.replace(/[$,]/g, "")))){ numeric++; } }
+      }
+      return seen > 0 && numeric / seen >= 0.8;
+    });
+    sortCol = -1; page = 0; els.search.value = "";
+    applyFilter();
+    renderStats(sourceName);
+    buildChartControls();
+    renderTable();
+    els.tablePanel.style.display = "block";
+    els.chartPanel.style.display = numericCols.some(Boolean) ? "block" : "none";
+    els.exportBtn.disabled = false;
+    var ms = Math.max(1, Math.round(performance.now() - t0));
+    els.status.innerHTML = "✅ Loaded <b>" + fmt(rows.length) + " rows</b> × " + headers.length + " columns from " + esc(sourceName) + " in " + ms + " ms — parsed and rendered locally.";
+    drawChart();
+  }
+
+  function applyFilter(){
+    var q = els.search.value.trim().toLowerCase();
+    if(!q){ filtered = rows.slice(); }
+    else {
+      filtered = rows.filter(function(r){
+        return r.some(function(cell){ return cell.toLowerCase().indexOf(q) !== -1; });
+      });
+    }
+    if(sortCol >= 0){
+      var ci = sortCol, numeric = numericCols[ci];
+      filtered.sort(function(a, b){
+        var x = a[ci], y = b[ci], cmp;
+        if(numeric){ cmp = (Number(x.replace(/[$,]/g,"")) || 0) - (Number(y.replace(/[$,]/g,"")) || 0); }
+        else { cmp = x < y ? -1 : (x > y ? 1 : 0); }
+        return cmp * sortDir;
+      });
+    }
+    page = 0;
+  }
+
+  function renderStats(sourceName){
+    var cards = [
+      {k:"Rows", v:fmt(rows.length), s:"in " + sourceName},
+      {k:"Columns", v:String(headers.length), s:numericCols.filter(Boolean).length + " numeric"}
+    ];
+    numericCols.forEach(function(isNum, ci){
+      if(!isNum || cards.length >= 5){ return; }
+      var sum = 0;
+      rows.forEach(function(r){ sum += Number(r[ci].replace(/[$,]/g,"")) || 0; });
+      cards.push({k:"Σ " + headers[ci], v:fmt(Math.round(sum * 100) / 100), s:"avg " + fmt(Math.round((sum / rows.length) * 100) / 100) + " per row"});
+    });
+    els.stats.innerHTML = cards.map(function(c){
+      return '<div class="stat"><div class="k">' + esc(c.k) + '</div><div class="v">' + c.v + '</div><div class="s">' + esc(c.s) + "</div></div>";
+    }).join("");
+  }
+
+  function renderTable(){
+    els.thead.innerHTML = "<tr>" + headers.map(function(h, ci){
+      var arrow = sortCol === ci ? ' <span class="arrow">' + (sortDir === 1 ? "▲" : "▼") + "</span>" : "";
+      return '<th data-ci="' + ci + '"' + (numericCols[ci] ? ' class="num"' : "") + ">" + esc(h) + arrow + "</th>";
+    }).join("") + "</tr>";
+    var start = page * PAGE_SIZE;
+    var slice = filtered.slice(start, start + PAGE_SIZE);
+    els.tbody.innerHTML = slice.map(function(r){
+      return "<tr>" + r.map(function(cell, ci){
+        return '<td' + (numericCols[ci] ? ' class="num"' : "") + ">" + esc(cell) + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+    var totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    els.pageInfo.textContent = "Page " + (page + 1) + " of " + totalPages + " · rows " + (filtered.length ? (start + 1) : 0) + "–" + Math.min(start + PAGE_SIZE, filtered.length);
+    els.matchInfo.textContent = filtered.length === rows.length ? "" : fmt(filtered.length) + " of " + fmt(rows.length) + " rows match";
+    document.getElementById("prevBtn").disabled = page <= 0;
+    document.getElementById("nextBtn").disabled = page >= totalPages - 1;
+  }
+
+  els.thead.addEventListener("click", function(ev){
+    var th = ev.target.closest("th");
+    if(!th){ return; }
+    var ci = Number(th.dataset.ci);
+    if(sortCol === ci){ sortDir *= -1; } else { sortCol = ci; sortDir = 1; }
+    applyFilter(); renderTable();
+  });
+
+  var deb = null;
+  els.search.addEventListener("input", function(){
+    clearTimeout(deb);
+    deb = setTimeout(function(){ applyFilter(); renderTable(); }, 160);
+  });
+
+  document.getElementById("prevBtn").addEventListener("click", function(){ if(page > 0){ page--; renderTable(); } });
+  document.getElementById("nextBtn").addEventListener("click", function(){ page++; renderTable(); });
+
+  // --- chart: group-by totals, top 10 ---
+  function buildChartControls(){
+    els.groupCol.innerHTML = headers.map(function(h, i){ return '<option value="' + i + '">' + esc(h) + "</option>"; }).join("");
+    els.valueCol.innerHTML = headers.map(function(h, i){ return numericCols[i] ? '<option value="' + i + '">' + esc(h) + "</option>" : ""; }).join("");
+    var firstCat = numericCols.findIndex(function(n){ return !n; });
+    els.groupCol.value = firstCat >= 0 ? firstCat : 0;
+    els.valueCol.value = numericCols.findIndex(Boolean);
+  }
+  els.groupCol.addEventListener("change", drawChart);
+  els.valueCol.addEventListener("change", drawChart);
+
+  function drawChart(){
+    if(!rows.length || !numericCols.some(Boolean)){ return; }
+    var g = Number(els.groupCol.value), v = Number(els.valueCol.value);
+    if(isNaN(g) || isNaN(v)){ return; }
+    var totals = {};
+    rows.forEach(function(r){
+      var key = r[g].trim() || "(blank)";
+      totals[key] = (totals[key] || 0) + (Number(r[v].replace(/[$,]/g,"")) || 0);
+    });
+    var pairs = Object.keys(totals).map(function(k){ return [k, totals[k]]; }).sort(function(a,b){ return b[1] - a[1]; }).slice(0, 10);
+    var cv = document.getElementById("chart"), ctx = cv.getContext("2d");
+    var W = cv.width, H = cv.height;
+    ctx.clearRect(0,0,W,H);
+    if(!pairs.length){ return; }
+    var max = Math.max.apply(null, pairs.map(function(p){ return p[1]; }).concat([1]));
+    var base = H - 44, top = 16, bw = Math.min(64, (W - 40) / pairs.length - 22);
+    var step = (W - 30) / pairs.length;
+    ctx.strokeStyle = "#2b2f3d"; ctx.beginPath(); ctx.moveTo(12, base); ctx.lineTo(W - 12, base); ctx.stroke();
+    pairs.forEach(function(p, i){
+      var h = Math.max(3, (p[1] / max) * (base - top));
+      var x = 20 + i * step + (step - bw) / 2;
+      ctx.fillStyle = "#8b7bff";
+      ctx.fillRect(x, base - h, bw, h);
+      ctx.fillStyle = "#f0eff5"; ctx.font = "11.5px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(fmt(Math.round(p[1])), x + bw/2, base - h - 6);
+      ctx.fillStyle = "#9a97a8";
+      var label = p[0].length > 14 ? p[0].slice(0, 13) + "…" : p[0];
+      ctx.fillText(label, x + bw/2, base + 16);
+    });
+    ctx.fillStyle = "#9a97a8"; ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+    ctx.fillText("Top " + pairs.length + " · " + headers[v] + " by " + headers[g] + " (full dataset, not just filtered rows)", 14, H - 6);
+  }
+
+  // --- input routes ---
+  document.getElementById("pickBtn").addEventListener("click", function(){ els.file.click(); });
+  els.file.addEventListener("change", function(){
+    var f = els.file.files[0];
+    if(f){ readFile(f); }
+  });
+  function readFile(f){
+    var reader = new FileReader();
+    reader.onload = function(){ loadFromText(String(reader.result), f.name); };
+    reader.readAsText(f);
+  }
+  ["dragenter","dragover"].forEach(function(evt){
+    els.drop.addEventListener(evt, function(e){ e.preventDefault(); els.drop.classList.add("over"); });
+  });
+  ["dragleave","drop"].forEach(function(evt){
+    els.drop.addEventListener(evt, function(e){ e.preventDefault(); els.drop.classList.remove("over"); });
+  });
+  els.drop.addEventListener("drop", function(e){
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f){ readFile(f); }
+  });
+
+  document.getElementById("pasteBtn").addEventListener("click", function(){
+    els.pasteBox.style.display = els.pasteBox.style.display === "block" ? "none" : "block";
+    els.pasteBox.focus();
+  });
+  els.pasteBox.addEventListener("change", function(){
+    if(els.pasteBox.value.trim()){ loadFromText(els.pasteBox.value, "pasted text"); }
+  });
+
+  document.getElementById("sampleBtn").addEventListener("click", function(){
+    var cities = ["Toronto","Scarborough","Etobicoke","North York","Mississauga","Vaughan","Markham","Brampton"];
+    var channels = ["In-store","Online","Phone","Partner"];
+    var products = ["Winter tires","Insulation kit","Space heater","Snow shovel","Salt bag 20kg","LED bulbs 8-pack","Thermostat","Pipe wrap"];
+    // deterministic pseudo-random so the sample is stable between clicks
+    var seed = 42;
+    function rnd(){ seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
+    var lines = ["order_id,date,city,channel,product,units,unit_price,revenue"];
+    for(var i = 1; i <= 10000; i++){
+      var city = cities[Math.floor(rnd() * cities.length)];
+      var ch = channels[Math.floor(rnd() * channels.length)];
+      var prod = products[Math.floor(rnd() * products.length)];
+      var units = 1 + Math.floor(rnd() * 6);
+      var price = (9.99 + rnd() * 240).toFixed(2);
+      var rev = (units * price).toFixed(2);
+      var month = 1 + Math.floor(rnd() * 12), day = 1 + Math.floor(rnd() * 28);
+      var date = "2026-" + String(month).padStart(2,"0") + "-" + String(day).padStart(2,"0");
+      lines.push([100000 + i, date, city, ch, '"' + prod + '"', units, price, rev].join(","));
+    }
+    loadFromText(lines.join("\n"), "generated sample (10,000 rows)");
+  });
+
+  els.exportBtn.addEventListener("click", function(){
+    function q(s){ s = String(s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; }
+    var lines = [headers.map(q).join(",")];
+    filtered.forEach(function(r){ lines.push(r.map(q).join(",")); });
+    var blob = new Blob([lines.join("\n")], {type:"text/csv"});
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "dataforge-filtered.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+})();
+</script>
+</body>
+</html>
